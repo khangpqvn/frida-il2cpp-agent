@@ -15,5 +15,9 @@
     "@types/node": "^18.0.6",
     "frida-compile": "^10.2.4",
     "frida-il2cpp-bridge": "^0.7.13"
+  },
+  "dependencies": {
+    "@types/lodash": "^4.14.196",
+    "lodash": "^4.17.21"
   }
 }
