@@ -61,9 +61,9 @@ function hookHack() {
   }
 }
 const traces: any = {
-  IsRun: true,
+  IsRun: !true,
   Assemblies: ["Assembly-CSharp", "Protos"],
-  Classes: ["Player"],
+  Classes: ["GameplayViewController"],
   All: false,
   UsingIncludes: false,
   MethodIncludes: [],
@@ -83,7 +83,7 @@ const traces: any = {
     // "GetActiveCooldownTimePercentLeft",
   ],
   ignoreMethodContainsKeyword: ["update", "getAny", "SetupView"],
-  mode: !"full" || "detailed",
+  mode: "full" || "detailed",
 };
 function rewriteFunction() {
   return {

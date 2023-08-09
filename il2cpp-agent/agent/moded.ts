@@ -1,16 +1,22 @@
+import "frida-il2cpp-bridge";
+
 function hookHack() {
   let rewriteFunction: any = {};
   let config = {
-    cameraHight: false && 150,
+    cameraHight: 0 && 150,
     hackSeeAll: true,
     hackOpenGrass: true,
     hackCeilBuilding: true,
     hackViewTypePlayer: true,
-    gameMode: "",
+    gameMode: "trio",
   };
   var AssemblyCSharp: Il2Cpp.Image;
   let playerUID: Il2Cpp.String = Il2Cpp.String.from(null);
-  let playerId: number = -1;
+  let playerId = -1;
+  let needUseMedkit = false;
+  let endgame = false;
+  let PlayerController: null | Il2Cpp.Object | Il2Cpp.Class = null;
+  AssemblyCSharp = Il2Cpp.Domain.assembly("Assembly-CSharp").image;
 
   function addRewriteMethod(
     assembly: string | "Assembly-CSharp",
@@ -49,7 +55,7 @@ function hookHack() {
     addRewriteMethodAssemblyCSharp(
       "BasePlayerRendererGrassRingController",
       "UpdatePlayerGrassCircleRadius",
-      function openAllGrass(
+      function (
         this: Il2Cpp.Object | Il2Cpp.Class,
         radius: number,
         roundPercent01: number
@@ -91,10 +97,10 @@ function hookHack() {
     addRewriteMethodAssemblyCSharp(
       "PlayerController",
       "GetLocalizedName",
-      function viewTypePlayer(this: Il2Cpp.Object | Il2Cpp.Class) {
+      function (this: Il2Cpp.Object | Il2Cpp.Class) {
         let name = this.method<Il2Cpp.String>("GetLocalizedName").invoke();
         if (config.hackViewTypePlayer)
-          name.content += this.method<boolean>("get_IsBot").invoke()
+          name.content += this.field<boolean>("_isBot").value
             ? " - bot"
             : " - player";
         return name;
@@ -112,23 +118,20 @@ function hookHack() {
       }
     );
     addRewriteMethodAssemblyCSharp(
-      "MetagamePlayerCache",
-      "get_MaxLeague",
-      function (this: Il2Cpp.Object | Il2Cpp.Class) {
-        if (playerUID.isNull()) {
-          this.method<Il2Cpp.String>("get_PublicId").invoke();
-          console.log(`playerUID=${playerUID}`);
-        }
-        return this.method("get_MaxLeague").invoke();
+      "Player",
+      "Save",
+      function (
+        this: Il2Cpp.Object | Il2Cpp.Class,
+        accessToken: Il2Cpp.String,
+        PublicId: Il2Cpp.String
+      ) {
+        playerUID = PublicId;
+        console.log(`Save player ${playerUID}`);
+        return this.method("Save").invoke(accessToken, PublicId);
       }
     );
   }
 
-  let GameplayViewController: null | Il2Cpp.Object | Il2Cpp.Class = null;
-  let GameplayView: null | Il2Cpp.Object | Il2Cpp.Class = null;
-  let PlayerController: null | Il2Cpp.Object | Il2Cpp.Class = null;
-
-  let needUseMedkit = false;
   function getPlayerControllerFieldObject(
     controllerName:
       | string
@@ -144,12 +147,15 @@ function hookHack() {
     }
     return PlayerController.field(controllerName).value as Il2Cpp.Object;
   }
+  // async function setUser(params:type) {
+
+  // }
   function findCurrentPlayerController() {
     let klas = AssemblyCSharp.class("PlayerController");
     klas.method("get_IsGuard").implementation = function (
       this: Il2Cpp.Class | Il2Cpp.Object
     ) {
-      if (PlayerController == null) {
+      if (PlayerController == null && playerUID.content) {
         let classPlayerProfile = this.field("_playerProfile")
           .value as Il2Cpp.Object;
         let playerUID1 = classPlayerProfile
@@ -162,97 +168,53 @@ function hookHack() {
           PlayerController = this;
         }
       }
+
       return this.method("get_IsGuard").invoke();
     };
   }
   function hookGameplayViewController() {
     let klas = AssemblyCSharp.class("GameplayViewController");
-    klas.method("<SetupView>b__95_3").implementation = function (
-      this: Il2Cpp.Object | Il2Cpp.Class
-    ) {
-      this.method("<SetupView>b__95_3").invoke();
-      //On hook after run match do this for get user id
-      OnMatchStartRunningSetup(this);
-    };
+
     klas.method("OnMatchStartRunning").implementation = function (
       this: Il2Cpp.Object | Il2Cpp.Class,
       isServer: boolean
     ) {
-      OnMatchStartRunningSetup(this);
-      return this.method("OnMatchStartRunning").invoke(isServer);
+      playerId = this.field<number>("_mainPlayerId").value;
+      this.method("OnMatchStartRunning").invoke(isServer);
+      setTimeout(async () => {
+        needUseMedkit = false;
+        endgame = false;
+      }, 0);
     };
+
     klas.method("OnMatchEnded").implementation = function (
       this: Il2Cpp.Object | Il2Cpp.Class,
       matchEndedData: any,
       isServer: boolean
     ) {
-      OnMatchEndedSetup();
-      return this.method("OnMatchEnded").invoke(matchEndedData, isServer);
+      this.method("OnMatchEnded").invoke(matchEndedData, isServer);
+      setTimeout(async () => {
+        needUseMedkit = false;
+        endgame = true;
+      }, 0);
     };
-    klas.method("OnMatchFinished").implementation = function (
-      this: Il2Cpp.Object | Il2Cpp.Class,
-      OnMatchFinished: any
-    ) {
-      OnMatchFinishedSetup();
-      return this.method("OnMatchFinished").invoke(OnMatchFinished);
-    };
-    klas.method("Destroy").implementation = function (
-      this: Il2Cpp.Object | Il2Cpp.Class
-    ) {
-      GameplayViewController = null;
-      return this.method("Destroy").invoke();
-    };
-  }
-  function OnMatchStartRunningSetup(
-    GamePlayViewControllerInstance: Il2Cpp.Object | Il2Cpp.Class
-  ) {
-    //Khi load map xong
-    if (!GameplayViewController)
-      GameplayViewController = GamePlayViewControllerInstance;
-    if (!GameplayView)
-      GameplayView = GamePlayViewControllerInstance.method(
-        "GetView"
-      ).invoke() as Il2Cpp.Object;
-    if (playerId < 0)
-      playerId =
-        GamePlayViewControllerInstance.field<number>("_mainPlayerId").value;
-    if (!playerUID) {
-      let playerCache = GamePlayViewControllerInstance.field("_playerCache")
-        .value as Il2Cpp.Object;
-      playerCache.method("get_PublicId").invoke();
-    }
-  }
-
-  function OnMatchEndedSetup() {
-    //Khi người chơi chính bị chết
-    PlayerController = null;
-    playerId = -1;
-    GameplayView = null;
-    needUseMedkit = false;
-  }
-  function OnMatchFinishedSetup() {
-    //Khi trận đầu xong hết
-    PlayerController = null;
-    playerId = -1;
-    GameplayView = null;
+    // klas.method("OnMatchFinished").implementation = function (
+    //   this: Il2Cpp.Object | Il2Cpp.Class,
+    //   matchFinishedData: any
+    // ) {
+    //   this.method("OnMatchFinished").invoke(matchFinishedData);
+    // };
   }
 
   function autoHealth() {
     addRewriteMethodAssemblyCSharp(
       "GameplayView",
-      "Update",
+      "FixedUpdate",
       function (this: Il2Cpp.Object) {
-        if (GameplayView === null) {
-          GameplayView = this;
-          needUseMedkit = false;
+        if (needUseMedkit && !endgame) {
+          needUseMedkit = !this.method<boolean>("UseOrTriggerMedKit").invoke();
         }
-        if (
-          needUseMedkit &&
-          this.method<boolean>("UseOrTriggerMedKit").invoke()
-        ) {
-          needUseMedkit = false;
-        }
-        this.method("Update").invoke();
+        this.method("FixedUpdate").invoke();
       }
     );
     addRewriteMethodAssemblyCSharp(
@@ -314,17 +276,16 @@ function hookHack() {
   }
 
   ////////////////////////////////////////////////////////////////////////////////////////////////
-  AssemblyCSharp = Il2Cpp.Domain.assembly("Assembly-CSharp").image;
   getUserUID();
   hackViewTypePlayer();
   hackCamera();
   hackCeilBuilding();
   hackSeeAll();
   hackGrass();
+  hookGameMode();
   hookGameplayViewController();
   findCurrentPlayerController();
   autoHealth();
-  hookGameMode();
   for (let Assembly in rewriteFunction) {
     const classes: any = rewriteFunction[Assembly];
     const assembly = Il2Cpp.Domain.assembly(Assembly).image;
@@ -336,6 +297,7 @@ function hookHack() {
       }
     }
   }
+  console.log(`Done Hooking`);
 }
 
 export { hookHack };
